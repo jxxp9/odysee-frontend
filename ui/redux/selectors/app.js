@@ -74,9 +74,9 @@ export const selectActiveChannelClaim = createSelector(
   selectMyChannelClaims,
   (activeChannelClaim, userEmail, defaultChannel, myChannelClaims) => {
     // Null: has none. Undefined: not resolved, default state, could have or not
-    if (!userEmail || myChannelClaims === null) {
+    if (!userEmail || (myChannelClaims && myChannelClaims.length === 0)) {
       return null;
-    } else if (!myChannelClaims || !myChannelClaims.length) {
+    } else if (myChannelClaims === undefined) {
       return undefined;
     }
 
@@ -102,7 +102,7 @@ export const selectActiveChannelClaim = createSelector(
 
 export const selectActiveChannelClaimId = (state) => {
   const activeChannelClaim = selectActiveChannelClaim(state);
-  return activeChannelClaim?.claim_id;
+  return activeChannelClaim && activeChannelClaim.claim_id;
 };
 
 export const selectActiveChannelStakedLevel = (state) => {

@@ -20,6 +20,7 @@ import analytics from 'analytics';
 import CollectionGeneralTab from 'component/collectionGeneralTab';
 import PublishBidTab from 'component/publishBidField';
 import Spinner from 'component/spinner';
+import BusyIndicator from 'component/common/busy-indicator';
 
 export const PAGE_TAB_QUERY = `tab`;
 const MAX_TAG_SELECT = 5;
@@ -36,19 +37,14 @@ type Props = {
   uri: string, // collection uri
   collectionId: string,
   // -- redux -
-  hasClaim: boolean,
   balance: number,
+  claimName?: string,
   amount: number,
   collection: Collection,
   collectionParams: CollectionPublishParams,
   collectionClaimIds: Array<string>,
-  updatingCollection: boolean,
-  updateError: string,
-  createError: string,
-  creatingCollection: boolean,
-  doCollectionPublishUpdate: (CollectionUpdateParams) => Promise<any>,
-  doCollectionPublish: (CollectionPublishParams, string) => Promise<any>,
-  doClearCollectionErrors: () => void,
+  activeChannelClaim: ?ChannelClaim,
+  doCollectionPublish: (params: CollectionPublishParams, string) => Promise<any>,
   // onPreSubmit: Hook to allow clients to change/finalize the params before the form is submitted.
   onPreSubmit: (params: {}) => {},
   onDone: (string) => void,
@@ -59,19 +55,14 @@ function CollectionForm(props: Props) {
     uri,
     collectionId,
     // -- redux -
-    hasClaim,
     balance,
+    claimName,
     amount,
     collection,
     collectionParams,
     collectionClaimIds,
-    updatingCollection,
-    updateError,
-    createError,
-    creatingCollection,
-    doCollectionPublishUpdate,
+    activeChannelClaim,
     doCollectionPublish,
-    doClearCollectionErrors,
     onPreSubmit,
     onDone,
   } = props;
@@ -82,9 +73,9 @@ function CollectionForm(props: Props) {
   const [thumbailError, setThumbnailError] = React.useState('');
   const [bidError, setBidError] = React.useState('');
   const [params, setParams] = React.useState({});
-  const [loading, setLoading] = React.useState(false);
   const [tabIndex, setTabIndex] = React.useState(0);
   const [showItemsSpinner, setShowItemsSpinner] = React.useState(false);
+  const [isPublishing, setIsPublishing] = React.useState(false);
 
   const { name, languages, claims, tags } = params;
 
@@ -96,7 +87,8 @@ function CollectionForm(props: Props) {
   const hasClaims = claims && claims.length;
   const collectionClaimIdsString = JSON.stringify(collectionClaimIds);
   const itemError = !hasClaims ? __('Cannot publish empty list') : '';
-  const submitError = nameError || bidError || itemError || updateError || createError || thumbailError;
+  const submitError = nameError || bidError || itemError || thumbailError;
+  const hasParams = collectionParams !== undefined;
 
   function updateParams(newParams) {
     // $FlowFixMe
@@ -104,34 +96,26 @@ function CollectionForm(props: Props) {
   }
 
   function handleSubmit() {
+    setIsPublishing(true);
+
     const finalParams = onPreSubmit ? onPreSubmit(params) : params;
 
-    if (uri) {
-      // $FlowFixMe
-      doCollectionPublishUpdate(finalParams).then((pendingClaim) => {
+    // $FlowFixMe
+    doCollectionPublish(finalParams, collectionId)
+      .then((pendingClaim) => {
         if (pendingClaim) {
           const claimId = pendingClaim.claim_id;
           analytics.apiLog.publish(pendingClaim);
           onDone(claimId);
         }
-      });
-    } else {
-      // $FlowFixMe
-      doCollectionPublish(finalParams, collectionId).then((pendingClaim) => {
-        if (pendingClaim) {
-          const claimId = pendingClaim.claim_id;
-          analytics.apiLog.publish(pendingClaim);
-          onDone(claimId);
-        }
-      });
-    }
+      })
+      .catch(() => setIsPublishing(false));
   }
 
   React.useEffect(() => {
     const collectionClaimIds = JSON.parse(collectionClaimIdsString);
     // $FlowFixMe
     updateParams({ claims: collectionClaimIds });
-    doClearCollectionErrors();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collectionClaimIdsString]);
 
@@ -146,13 +130,15 @@ function CollectionForm(props: Props) {
     setNameError(nameError);
   }, [name]);
 
-  // setup initial params after we're sure if it's published or not
   React.useEffect(() => {
-    if (!uri || (uri && hasClaim)) {
-      updateParams(collectionParams);
+    if (hasParams) {
+      updateParams({ ...collectionParams, ...(claimName ? { name: claimName } : {}) });
     }
+
+    // -- Only updateParams when collectionParams isn't undefined, will be instant on private publish,
+    // but could wait for claim resolve on published update
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [uri, hasClaim]);
+  }, [hasParams]);
 
   function onTabChange(newTabIndex) {
     if (tabIndex !== newTabIndex) {
@@ -195,7 +181,6 @@ function CollectionForm(props: Props) {
                 nameError={nameError}
                 setThumbnailError={setThumbnailError}
                 updateParams={updateParams}
-                setLoading={setLoading}
                 collectionType={collection?.type}
               />
             )}
@@ -308,7 +293,7 @@ function CollectionForm(props: Props) {
         </TabPanels>
       </Tabs>
 
-      {!loading && (
+      {activeChannelClaim !== undefined && (
         <Card
           className="card--after-tabs"
           actions={
@@ -316,8 +301,8 @@ function CollectionForm(props: Props) {
               <div className="section__actions">
                 <Button
                   button="primary"
-                  disabled={isBuiltin || creatingCollection || updatingCollection || Boolean(submitError) || !hasClaims}
-                  label={creatingCollection || updatingCollection ? __('Submitting') : __('Submit')}
+                  disabled={isBuiltin || isPublishing || Boolean(submitError) || !hasClaims}
+                  label={isPublishing ? <BusyIndicator message={__('Submitting')} /> : __('Submit')}
                   onClick={handleSubmit}
                 />
                 <Button button="link" label={__('Cancel')} onClick={() => onDone(collectionId)} />

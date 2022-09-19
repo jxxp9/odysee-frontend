@@ -40,10 +40,11 @@ function CollectionForm(props: Props) {
   const collectionResetPending = React.useRef(false);
   const isBuiltin = COLLECTIONS_CONSTS.BUILTIN_PLAYLISTS.includes(collectionId);
 
-  const { name, description, thumbnail } = collection || {};
+  const { name, title, description, thumbnail } = collection || {};
   const initialParams = React.useRef({
     uris: collectionUrls,
     name,
+    title: title || name,
     description,
     thumbnail,
   });
@@ -57,7 +58,9 @@ function CollectionForm(props: Props) {
   }
 
   function handleSubmit() {
-    doCollectionEdit(collectionId, params);
+    if (params !== initialParams.current) {
+      doCollectionEdit(collectionId, params);
+    }
     goBack();
   }
 
@@ -110,7 +113,7 @@ function CollectionForm(props: Props) {
               <Button
                 button="primary"
                 label={__('Submit')}
-                disabled={isBuiltin || thumbailError || params === initialParams.current}
+                disabled={isBuiltin || thumbailError}
                 onClick={handleSubmit}
               />
               <Button button="link" label={__('Cancel')} onClick={goBack} />

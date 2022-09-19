@@ -1,19 +1,14 @@
 import { connect } from 'react-redux';
-import { doResolveUri } from 'redux/actions/claims';
-import { selectHasResolvedClaimForUri, selectThumbnailForUri } from 'redux/selectors/claims';
+import { selectHasResolvedClaimForUri, selectThumbnailForId, selectThumbnailForUri } from 'redux/selectors/claims';
 import CardMedia from './view';
 
 const select = (state, props) => {
-  const { uri } = props;
+  const { uri, id } = props;
 
   return {
     hasResolvedClaim: uri ? selectHasResolvedClaimForUri(state, uri) : undefined,
-    thumbnailFromClaim: selectThumbnailForUri(state, uri),
+    thumbnailFromClaim: (id && selectThumbnailForId(state, id)) || (uri && selectThumbnailForUri(state, uri)),
   };
 };
 
-const perform = {
-  doResolveUri,
-};
-
-export default connect(select, perform)(CardMedia);
+export default connect(select)(CardMedia);

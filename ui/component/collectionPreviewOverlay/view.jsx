@@ -4,21 +4,13 @@ import { withRouter } from 'react-router-dom';
 import FileThumbnail from 'component/fileThumbnail';
 
 type Props = {
-  collectionId: string,
   // redux
   collectionItemUrls: Array<string>,
   collectionThumbnail: ?string,
-  doFetchItemsInCollection: (options: CollectionFetchParams) => void,
 };
 
 function CollectionPreviewOverlay(props: Props) {
-  const { collectionId, collectionItemUrls, collectionThumbnail, doFetchItemsInCollection } = props;
-
-  React.useEffect(() => {
-    if (!collectionItemUrls) {
-      doFetchItemsInCollection({ collectionId, pageSize: 3 });
-    }
-  }, [collectionId, collectionItemUrls, doFetchItemsInCollection]);
+  const { collectionItemUrls, collectionThumbnail } = props;
 
   if (!collectionItemUrls || collectionItemUrls.length === 0) {
     return null;
@@ -32,9 +24,9 @@ function CollectionPreviewOverlay(props: Props) {
   return (
     <div className="claim-preview__collection-wrapper">
       <ul className="ul--no-style collection-preview-overlay__grid">
-        {displayedItems.map((uri) => (
-          <li className="li--no-style collection-preview-overlay__grid-item" key={uri}>
-            <FileThumbnail uri={uri} />
+        {displayedItems.map((item) => (
+          <li className="li--no-style collection-preview-overlay__grid-item" key={item}>
+            <FileThumbnail uri={item} id={item} />
           </li>
         ))}
       </ul>

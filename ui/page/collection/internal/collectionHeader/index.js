@@ -1,12 +1,12 @@
 import { connect } from 'react-redux';
 
-import { makeSelectClaimIsPending, selectClaimForId } from 'redux/selectors/claims';
+import { selectClaimIsPendingForId, selectClaimForId } from 'redux/selectors/claims';
 import {
   selectCollectionForId,
   selectCountForCollectionId,
   selectCollectionHasEditsForId,
-  selectMyPublishedCollectionCountForId,
-  selectCollectionIsMine,
+  selectMyPublicCollectionCountForId,
+  selectCollectionIsMineForId,
 } from 'redux/selectors/collections';
 import { doCollectionEdit } from 'redux/actions/collections';
 
@@ -23,10 +23,10 @@ const select = (state, props) => {
     uri,
     collection: selectCollectionForId(state, collectionId),
     collectionCount: selectCountForCollectionId(state, collectionId),
-    claimIsPending: makeSelectClaimIsPending(uri)(state),
+    claimIsPending: selectClaimIsPendingForId(state, collectionId),
     collectionHasEdits: selectCollectionHasEditsForId(state, collectionId),
-    publishedCollectionCount: selectMyPublishedCollectionCountForId(state, collectionId),
-    isMyCollection: selectCollectionIsMine(state, collectionId),
+    publishedCollectionCount: selectMyPublicCollectionCountForId(state, collectionId),
+    isMyCollection: selectCollectionIsMineForId(state, collectionId),
   };
 };
 

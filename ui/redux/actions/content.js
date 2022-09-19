@@ -14,7 +14,6 @@ import {
   selectClaimIsMineForUri,
   selectClaimWasPurchasedForUri,
   selectPermanentUrlForUri,
-  selectCanonicalUrlForUri,
   selectClaimForUri,
 } from 'redux/selectors/claims';
 import {
@@ -25,18 +24,25 @@ import {
 import {
   selectUrlsForCollectionId,
   selectCollectionForIdHasClaimUrl,
-  selectFirstItemUrlForCollection,
+  selectFirstItemUrlForCollectionId,
+  selectIsCollectionPrivateForId,
+  selectCollectionHasItemsResolvedForId,
 } from 'redux/selectors/collections';
-import { doCollectionEdit, doLocalCollectionCreate } from 'redux/actions/collections';
+import { doCollectionEdit, doLocalCollectionCreate, doFetchItemsInCollection } from 'redux/actions/collections';
 import { selectUserVerifiedEmail } from 'redux/selectors/user';
 import { doToast } from 'redux/actions/notifications';
 import { doPurchaseUri } from 'redux/actions/file';
-import { doGetClaimFromUriResolve } from 'redux/actions/claims';
 import Lbry from 'lbry';
 import RecSys from 'recsys';
 import * as SETTINGS from 'constants/settings';
 import { selectCostInfoForUri, Lbryio, doFetchCostInfoForUri } from 'lbryinc';
-import { selectClientSetting, selectosNotificationsEnabled, selectDaemonSettings } from 'redux/selectors/settings';
+import { formatLbryUrlForWeb, generateListSearchUrlParams } from 'util/url';
+import {
+  selectClientSetting,
+  selectFloatingPlayerEnabled,
+  selectosNotificationsEnabled,
+  selectDaemonSettings,
+} from 'redux/selectors/settings';
 import { selectIsActiveLivestreamForUri } from 'redux/selectors/livestream';
 import {
   selectRecsysEntries,
@@ -47,7 +53,6 @@ import {
   selectIsUriCurrentlyPlaying,
   makeSelectIsPlayerFloating,
 } from 'redux/selectors/content';
-import { isCanonicalUrl } from 'util/claim';
 
 const DOWNLOAD_POLL_INTERVAL = 1000;
 
@@ -125,29 +130,8 @@ export function doUpdateLoadStatus(uri: string, outpoint: string) {
   // @endif
 }
 
-export function doSetPrimaryUri(uri: ?string) {
-  return async (dispatch: Dispatch, getState: GetState) => {
-    let url = uri;
-
-    if (uri && !isCanonicalUrl(uri)) {
-      // -- sanitization --
-      // only set canonical urls
-      const state = getState();
-      url = selectCanonicalUrlForUri(state, uri);
-
-      if (!url) {
-        const claim = await dispatch(doGetClaimFromUriResolve(url));
-        if (claim) url = claim.canonical_url;
-      }
-      // -------------------
-    }
-
-    dispatch({
-      type: ACTIONS.SET_PRIMARY_URI,
-      data: { uri: url },
-    });
-  };
-}
+export const doSetPrimaryUri = (uri: ?string) => async (dispatch: Dispatch, getState: GetState) =>
+  dispatch({ type: ACTIONS.SET_PRIMARY_URI, data: { uri } });
 
 export const doClearPlayingUri = () => (dispatch: Dispatch) => dispatch(doSetPlayingUri({ uri: null, collection: {} }));
 export const doClearPlayingSource = () => (dispatch: Dispatch) => dispatch(doChangePlayingUriParam({ source: null }));
@@ -168,31 +152,10 @@ export const doPopOutInlinePlayer = ({ source }: { source: string }) => (dispatc
   }
 };
 
-export function doSetPlayingUri({ uri, source, sourceId, location, commentId, collection }: PlayingUri) {
-  return async (dispatch: Dispatch, getState: GetState) => {
-    const state = getState();
-    let url = uri;
-
-    if (uri && !isCanonicalUrl(uri)) {
-      // -- sanitization --
-      // only set canonical urls
-      if (uri) {
-        url = selectCanonicalUrlForUri(state, uri);
-
-        if (!url) {
-          const claim = await dispatch(doGetClaimFromUriResolve(url));
-          if (claim) url = claim.canonical_url;
-        }
-      }
-      // -------------------
-    }
-
-    dispatch({
-      type: ACTIONS.SET_PLAYING_URI,
-      data: { uri: url, source, sourceId, location, commentId, collection },
-    });
-  };
-}
+export const doSetPlayingUri = ({ uri, source, sourceId, location, commentId, collection }: PlayingUri) => async (
+  dispatch: Dispatch,
+  getState: GetState
+) => dispatch({ type: ACTIONS.SET_PLAYING_URI, data: { uri, source, sourceId, location, commentId, collection } });
 
 export function doChangePlayingUriParam(newParams: any) {
   return (dispatch: Dispatch, getState: GetState) => {
@@ -230,24 +193,11 @@ export function doUriInitiatePlay(
   cb?: (url: string) => void
 ) {
   return async (dispatch: Dispatch, getState: () => any) => {
-    const { uri: url, source, collection } = playingOptions;
-
-    const state = getState();
-
-    let uri = url;
-    if (url && !isCanonicalUrl(url)) {
-      // -- sanitization --
-      // only set canonical urls
-      uri = selectCanonicalUrlForUri(state, url);
-
-      if (!uri) {
-        const claim = await dispatch(doGetClaimFromUriResolve(url));
-        if (claim) uri = claim.canonical_url;
-      }
-      // -------------------
-    }
+    const { uri, source, collection } = playingOptions;
 
     if (!uri) return;
+
+    const state = getState();
 
     if (!isFloating && (!source || source === COLLECTIONS_CONSTS.QUEUE_ID)) dispatch(doSetPrimaryUri(uri));
 
@@ -324,7 +274,7 @@ export function doPlaylistAddAndAllowPlaying({
     if (createNew) {
       dispatch(
         doLocalCollectionCreate(
-          { name: collectionName, items: uri ? [uri] : [], type: COL_TYPES.PLAYLIST, sourceId },
+          { name: collectionName, title: collectionName, items: uri ? [uri] : [], type: COL_TYPES.PLAYLIST, sourceId },
           (newId) => {
             collectionId = newId;
             if (createCb) createCb(newId);
@@ -363,7 +313,7 @@ export function doPlaylistAddAndAllowPlaying({
     const collectionPlayingId = selectPlayingCollectionId(state);
     const playingUri = selectPlayingUri(state);
     const isUriPlaying = uri && selectIsUriCurrentlyPlaying(state, uri);
-    const firstItemUri = selectFirstItemUrlForCollection(state, collectionId);
+    const firstItemUri = collectionId && selectFirstItemUrlForCollectionId(state, collectionId);
 
     const isPlayingCollection = collectionPlayingId && collectionId && collectionPlayingId === collectionId;
     const hasItemPlaying = playingUri.uri && !isUriPlaying;
@@ -376,7 +326,7 @@ export function doPlaylistAddAndAllowPlaying({
       } else {
         dispatch(
           doUriInitiatePlay(
-            { uri: createNew ? uri : firstItemUri, collection: { collectionId } },
+            { uri: createNew ? uri : firstItemUri || '', collection: { collectionId } },
             true,
             true,
             !floatingPlayerEnabled && pushPlay ? (url) => pushPlay(url) : undefined
@@ -427,7 +377,7 @@ export function doPlaylistAddAndAllowPlaying({
 }
 
 export function doPlayUri(
-  url: string,
+  uri: string,
   skipCostCheck: boolean = false,
   saveFileOverride: boolean = false,
   cb?: () => void,
@@ -435,19 +385,6 @@ export function doPlayUri(
 ) {
   return async (dispatch: Dispatch, getState: () => any) => {
     const state = getState();
-
-    let uri = url;
-    if (url && !isCanonicalUrl(url)) {
-      // -- sanitization --
-      // only set canonical urls
-      uri = selectCanonicalUrlForUri(state, url);
-
-      if (!uri) {
-        const claim = await dispatch(doGetClaimFromUriResolve(url));
-        if (claim) url = claim.canonical_url;
-      }
-      // -------------------
-    }
 
     const isMine = selectClaimIsMineForUri(state, uri);
     const fileInfo = makeSelectFileInfoForUri(uri)(state);
@@ -594,18 +531,26 @@ export const doToggleLoopList = (params: { collectionId: string, hideToast?: boo
   }
 };
 
-export const doToggleShuffleList = (params: { currentUri?: string, collectionId: string, hideToast?: boolean }) => (
-  dispatch: Dispatch,
-  getState: () => any
-) => {
-  const { currentUri, collectionId, hideToast } = params;
-  const state = getState();
+export const doToggleShuffleList = (params: {
+  currentUri?: string,
+  collectionId: string,
+  hideToast?: boolean,
+  forcePush?: boolean,
+  onlySet?: boolean,
+}) => async (dispatch: Dispatch, getState: () => any) => {
+  const { currentUri, collectionId, hideToast, forcePush, onlySet } = params;
+  let state = getState();
   const playingUri = selectPlayingUri(state);
   const { collection: playingCollection } = playingUri;
-  // const collectionIsPlaying = selectIsCollectionPlayingForId(state, collectionId);
   const listIsShuffledForId = selectListIsShuffledForId(state, collectionId);
+  const hasItemsResolved = selectCollectionHasItemsResolvedForId(state, collectionId);
 
   if (!listIsShuffledForId) {
+    if (!selectIsCollectionPrivateForId(state, collectionId) && !hasItemsResolved) {
+      await dispatch(doFetchItemsInCollection({ collectionId })).then(() => {
+        state = getState();
+      });
+    }
     const urls = selectUrlsForCollectionId(state, collectionId);
 
     let newUrls = urls
@@ -621,7 +566,29 @@ export const doToggleShuffleList = (params: { currentUri?: string, collectionId:
       newUrls.splice(0, 0, currentUri);
     }
 
-    dispatch(doChangePlayingUriParam({ collection: { ...playingCollection, collectionId, shuffle: { newUrls } } }));
+    if (onlySet) {
+      dispatch(doChangePlayingUriParam({ collection: { ...playingCollection, collectionId, shuffle: { newUrls } } }));
+    } else {
+      const floatingPlayerEnabled = selectFloatingPlayerEnabled(state);
+
+      if (!forcePush && floatingPlayerEnabled) {
+        dispatch(
+          doUriInitiatePlay(
+            { uri: newUrls[0], collection: { ...playingCollection, collectionId, shuffle: { newUrls } } },
+            true,
+            true
+          )
+        );
+      } else {
+        dispatch(
+          push({
+            pathname: formatLbryUrlForWeb(newUrls[0]),
+            search: generateListSearchUrlParams(collectionId),
+            state: { forceAutoplay: true },
+          })
+        );
+      }
+    }
   } else {
     dispatch(doChangePlayingUriParam({ collection: { ...playingCollection, collectionId, shuffle: undefined } }));
   }

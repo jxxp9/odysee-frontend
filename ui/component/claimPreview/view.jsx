@@ -286,7 +286,8 @@ const ClaimPreview = forwardRef<any, {}>((props: Props, ref: any) => {
       search: disableClickNavigation ? search : navigateSearch.toString() ? '?' + navigateSearch.toString() : '',
     },
     onClick: handleNavLinkClick,
-    onAuxClick: handleNavLinkClick,
+    // if items play on click, don't play on auxClick
+    onAuxClick: playItemsOnClick ? undefined : handleNavLinkClick,
   };
 
   let shouldHide =
@@ -355,10 +356,10 @@ const ClaimPreview = forwardRef<any, {}>((props: Props, ref: any) => {
   }
 
   useEffect(() => {
-    if (isValid && !isResolvingUri && shouldFetch && uri) {
+    if (isValid && !isResolvingUri && shouldFetch && uri && !collectionId) {
       resolveUri(uri);
     }
-  }, [isValid, uri, isResolvingUri, shouldFetch, resolveUri]);
+  }, [isValid, uri, isResolvingUri, shouldFetch, resolveUri, collectionId]);
 
   // **************************************************************************
   // **************************************************************************

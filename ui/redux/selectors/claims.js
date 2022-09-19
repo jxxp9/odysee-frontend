@@ -42,6 +42,24 @@ export const selectCreateChannelError = (state: State) => selectState(state).cre
 export const selectRepostLoading = (state: State) => selectState(state).repostLoading;
 export const selectRepostError = (state: State) => selectState(state).repostError;
 export const selectLatestByUri = (state: State) => selectState(state).latestByUri;
+export const selectCollectionClaimsById = (state: State) => selectState(state).collectionClaimsById;
+export const selectMyCollectionClaims = (state: State) => selectState(state).myCollectionClaims;
+
+export const selectMyCollectionClaimsById = createSelector(
+  selectCollectionClaimsById,
+  selectMyCollectionClaims,
+  (collectionClaimsById, myCollectionClaims) => {
+    const myCollectionClaimsById = {};
+
+    myCollectionClaims.forEach((collectionId) => {
+      if (collectionClaimsById[collectionId]) {
+        myCollectionClaimsById[collectionId] = collectionClaimsById[collectionId];
+      }
+    });
+
+    return myCollectionClaimsById;
+  }
+);
 
 export const selectLatestClaimForUri = createSelector(
   (state, uri) => uri,
@@ -173,6 +191,8 @@ export const selectHasClaimForUri = (state: State, uri: string) => {
   const claim = selectClaimForUri(state, uri);
   return Boolean(claim);
 };
+
+export const selectHasClaimForClaimId = (state: State, id: string) => Boolean(selectClaimForId(state, id));
 
 export const selectHasResolvedClaimForUri = (state: State, uri: string) => {
   // This selector assumes that `uri` is never null and is valid. It
@@ -387,6 +407,46 @@ export const selectMetadataForUri = (state: State, uri: string) => {
   return metadata || (claim === undefined ? undefined : null);
 };
 
+export const selectMetadataForClaimId = (state: State, claimId: ClaimId) => {
+  const claim = selectClaimForClaimId(state, claimId);
+  if (!claim) return claim;
+
+  const { value: metadata } = claim;
+  return metadata;
+};
+
+export const selectMetadataItemForClaimIdAndKey = (
+  state: State,
+  claimId: ClaimId,
+  key: ChannelMetadataKey | StreamMetadataKey | CollectionMetadataKey
+) => selectMetadataForClaimId(state, claimId)[key];
+
+export const selectTagNamesForClaimId = createSelector(
+  (state, claimId) => selectMetadataItemForClaimIdAndKey(state, claimId, 'tags'),
+  (tags) => tags && tags.map((tag) => tag.name || tag)
+);
+
+export const selectGenericClaimUploadMetadataForId = (state: State, claimId: ClaimId) => {
+  const claim = selectClaimForClaimId(state, claimId);
+  if (!claim) return claim;
+
+  const thumbnail = selectMetadataItemForClaimIdAndKey(state, claimId, 'thumbnail');
+
+  const genericUploadMetadata: GenericUpdateParams = {
+    claim_id: claim.claim_id,
+    channel_id: getChannelIdFromClaim(claim) || null,
+    title: selectMetadataItemForClaimIdAndKey(state, claimId, 'title'),
+    description: selectMetadataItemForClaimIdAndKey(state, claimId, 'description'),
+    languages: selectMetadataItemForClaimIdAndKey(state, claimId, 'languages') || [],
+    locations: selectMetadataItemForClaimIdAndKey(state, claimId, 'locations') || [],
+    bid: selectClaimBidAmountForId(state, claimId) || 0.001,
+    tags: selectTagNamesForClaimId(state, claimId) || [],
+    ...(thumbnail ? { thumbnail_url: thumbnail.url } : {}),
+  };
+
+  return genericUploadMetadata;
+};
+
 export const makeSelectMetadataForUri = (uri: string) =>
   createSelector(makeSelectClaimForUri(uri), (claim) => {
     const metadata = claim && claim.value;
@@ -429,6 +489,11 @@ export const makeSelectAmountForUri = (uri: string) =>
   createSelector(makeSelectClaimForUri(uri), (claim) => {
     return claim && claim.amount;
   });
+
+export const selectClaimBidAmountForId = (state: State, id: ClaimId) => {
+  const claim = selectClaimForClaimId(state, id);
+  return claim && claim.amount;
+};
 
 export const makeSelectEffectiveAmountForUri = (uri: string) =>
   createSelector(makeSelectClaimForUri(uri, false), (claim) => {
@@ -548,7 +613,6 @@ export const selectMyClaimsOutpoints = createSelector(selectMyClaims, (myClaims)
 });
 
 export const selectFetchingMyChannels = (state: State) => selectState(state).fetchingMyChannels;
-export const selectIsFetchingMyCollections = (state: State) => selectState(state).isFetchingMyCollections;
 
 export const selectMyChannelClaimsById = (state: State) => selectState(state).myChannelClaimsById;
 export const selectMyChannelClaims = createSelector(
@@ -574,9 +638,8 @@ export const selectHasChannels = (state: State) => {
   return myChannelClaimIds ? myChannelClaimIds.length > 0 : false;
 };
 
-export const selectMyCollectionIds = (state: State) => selectState(state).myCollectionClaims;
-
-export const selectResolvingUris = createSelector(selectState, (state) => state.resolvingUris || []);
+export const selectResolvingUris = (state: State) => selectState(state).resolvingUris;
+export const selectResolvingIds = (state: State) => selectState(state).resolvingIds;
 
 export const selectChannelImportPending = (state: State) => selectState(state).pendingChannelImport;
 
@@ -584,6 +647,7 @@ export const selectIsUriResolving = (state: State, uri: string) => {
   const resolvingUris = selectResolvingUris(state);
   return resolvingUris && resolvingUris.includes(uri);
 };
+export const selectIsResolvingForId = (state: State, id: string) => new Set(selectResolvingIds(state)).has(id);
 
 export const selectChannelClaimCounts = createSelector(selectState, (state) => state.channelClaimCounts || {});
 
@@ -658,6 +722,9 @@ export const selectChannelNameForId = (state: State, claimId: string) => {
   const uri = selectClaimUriForId(state, claimId);
   return selectChannelForClaimUri(state, uri);
 };
+
+export const selectClaimNameForId = (state: State, claimId: string) =>
+  getNameFromClaim(selectClaimForId(state, claimId));
 
 export const selectChannelForClaimUri = createCachedSelector(
   (state, uri, includePrefix) => includePrefix,
@@ -869,11 +936,6 @@ export const selectStakedLevelForChannelUri = createCachedSelector(selectTotalSt
   }
   return level;
 })((state, uri) => String(uri));
-
-export const selectUpdatingCollection = (state: State) => selectState(state).updatingCollection;
-export const selectUpdateCollectionError = (state: State) => selectState(state).updateCollectionError;
-export const selectCreatingCollection = (state: State) => selectState(state).creatingCollection;
-export const selectCreateCollectionError = (state: State) => selectState(state).createCollectionError;
 
 export const selectIsMyChannelCountOverLimit = createSelector(
   selectMyChannelClaimIds,
